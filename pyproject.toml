@@ -1,0 +1,108 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gesture-control"
+version = "0.1.0"
+description = "Hand gesture-based laptop monitor control using MediaPipe and OpenCV"
+readme = "readme.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+authors = [
+    {name = "Gesture Control Library", email = ""},
+]
+maintainers = [
+    {name = "Gesture Control Library", email = ""},
+]
+keywords = ["gesture", "control", "hand", "tracking", "mediapipe", "opencv", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = [
+    "opencv-python>=4.5.0",
+    "pyautogui>=0.9.50",
+    "numpy>=1.19.0",
+]
+
+[project.optional-dependencies]
+mediapipe = ["mediapipe>=0.8.0"]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.0",
+    "black>=21.0",
+    "flake8>=3.9",
+    "mypy>=0.812",
+]
+
+[project.urls]
+Homepage = "https://github.com/Idk507/gesture-control"
+Documentation = "https://github.com/Idk507//gesture-control#readme"
+Repository = "https://github.com/Idk507//gesture-control.git"
+Issues = "https://github.com/Idk507//gesture-control/issues"
+Changelog = "https://github.com/Idk507//gesture-control/blob/main/CHANGELOG.md"
+
+[project.scripts]
+gesture-control-demo = "gesture_control.examples.demo:main"
+
+[tool.setuptools]
+packages = ["gesture_control"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+gesture_control = ["*.json", "*.md"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+    \.git
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["gesture_control"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "cv2.*",
+    "mediapipe.*",
+]
+ignore_missing_imports = true
