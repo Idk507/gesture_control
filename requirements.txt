@@ -1,0 +1,19 @@
+# Gesture Control - Requirements
+# Python 3.11 or 3.12 required (Python 3.13+ not supported)
+
+# Core Dependencies
+mediapipe>=0.10.35      # Hand landmark detection (tasks API)
+opencv-python>=4.8.0    # Camera capture and video processing
+pyautogui>=0.9.54       # OS-level cursor/click control
+numpy>=1.24.0           # Numerical operations
+
+# MediaPipe Dependencies
+protobuf>=5.28.0,<6.0   # Protocol buffers (compatible with MediaPipe and TensorFlow)
+tensorflow>=2.20.0      # Required by MediaPipe
+
+# Development Dependencies (optional)
+pytest>=7.4.0           # Testing framework
+pytest-cov>=4.1.0       # Test coverage
+black>=23.7.0           # Code formatting
+flake8>=6.1.0           # Code linting
+mypy>=1.4.1             # Type checking
