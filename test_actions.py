@@ -10,7 +10,6 @@
 # - PyAutoGUI (for cross-platform OS control)
 # - Gesture recognition data from previous module
 
-# In[1]:
 
 
 import pyautogui
@@ -19,6 +18,7 @@ import platform
 from typing import Dict, Optional, Any
 import logging
 from enum import Enum
+import pytest
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -116,7 +116,8 @@ class ActionExecutor:
     def __init__(self,
                  scroll_amount: int = 3,
                  action_cooldown: float = 0.2,
-                 enable_safety: bool = True):
+                 enable_safety: bool = True,
+                 enable_click: bool = False):
         """
         Initialize action executor.
 
@@ -124,10 +125,12 @@ class ActionExecutor:
             scroll_amount: Number of scroll units per scroll action
             action_cooldown: Minimum time between actions (seconds)
             enable_safety: Enable safety measures (failsafe, etc.)
+            enable_click: Allow mouse click action from gestures
         """
         self.scroll_amount = scroll_amount
         self.action_cooldown = action_cooldown
         self.enable_safety = enable_safety
+        self.enable_click = enable_click
 
         # Rate limiting
         self.last_action_time = 0
@@ -252,6 +255,8 @@ class ActionExecutor:
 
     def _click(self) -> ActionResult:
         """Perform mouse click action."""
+        if not self.enable_click:
+            return ActionResult(ActionType.CLICK, True, "Click action disabled")
         pyautogui.click()
         return ActionResult(ActionType.CLICK, True, "Mouse clicked")
 
@@ -281,6 +286,7 @@ class ActionExecutor:
                 'scroll_amount': self.scroll_amount,
                 'action_cooldown': self.action_cooldown,
                 'scroll_direction': self.scroll_direction,
+                'enable_click': self.enable_click,
             }
         }
 
@@ -302,6 +308,9 @@ class ActionExecutor:
 # Test action execution (with safety warnings)
 def test_action_execution():
     """Test action execution functionality."""
+
+    if not sys.stdin or not sys.stdin.isatty():
+        pytest.skip("Interactive action execution test requires a TTY")
 
     print("🔔 ACTION EXECUTION TEST")
     print("⚠️  WARNING: This test will perform actual mouse/keyboard actions!")
