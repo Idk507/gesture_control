@@ -45,7 +45,10 @@ class GestureControl:
                  height: int = 480,
                  fps: int = 30,
                  show_preview: bool = True,
-                 use_mock_detection: bool = None):
+                 show_camera_overlay: bool = True,
+                 use_mock_detection: bool = None,
+                 enable_click: bool = False,
+                 enable_cursor_tracking: bool = False):
         """
         Initialize the gesture control system.
 
@@ -55,13 +58,18 @@ class GestureControl:
             height: Frame height
             fps: Target frames per second
             show_preview: Show live preview window
+            show_camera_overlay: Show small camera preview in corner of window
             use_mock_detection: Force mock hand detection
+            enable_click: Allow mouse click action from pinch gesture
+            enable_cursor_tracking: Move cursor based on hand position (in addition to gestures)
         """
         self.camera_index = camera_index
         self.width = width
         self.height = height
         self.fps = fps
         self.show_preview = show_preview
+        self.show_camera_overlay = show_camera_overlay
+        self.enable_cursor_tracking = enable_cursor_tracking
 
         # System state
         self.state = SystemState.STOPPED
@@ -82,6 +90,7 @@ class GestureControl:
 
         # Mock detection setting
         self.use_mock_detection = use_mock_detection
+        self.enable_click = enable_click
 
         # Preview window
         self.window_name = "Gesture Control - Press 'q' to quit, 'p' to pause"
@@ -118,7 +127,10 @@ class GestureControl:
             logger.info("🎯 Perform hand gestures to control scrolling!")
             logger.info("   - Swipe down: Scroll down")
             logger.info("   - Swipe up: Scroll up")
-            logger.info("   - Pinch: Click")
+            if self.enable_click:
+                logger.info("   - Pinch: Click")
+            if self.enable_cursor_tracking:
+                logger.info("   - Open hand: Move cursor")
             logger.info("   - Press 'q' to quit, 'p' to pause")
 
             # Start main loop
@@ -190,7 +202,8 @@ class GestureControl:
             self.executor = ActionExecutor(
                 scroll_amount=2,
                 action_cooldown=0.3,
-                enable_safety=True
+                enable_safety=True,
+                enable_click=self.enable_click,
             )
 
             logger.info("✅ All components initialized")
@@ -270,7 +283,11 @@ class GestureControl:
                 if action_result.success and action_result.action_type.name != "NONE":
                     self.action_count += 1
 
-            # 5. Update preview
+            # 5. Handle cursor tracking if enabled
+            if self.enable_cursor_tracking and hands:
+                self._update_cursor_position(hands[0], frame.shape)
+
+            # 6. Update preview
             if self.show_preview:
                 self._update_preview(frame, hands, gesture_result, action_result)
 
@@ -280,12 +297,59 @@ class GestureControl:
             logger.error(f"Frame processing error: {e}")
             return False
 
+    def _update_cursor_position(self, hand_data, frame_shape):
+        """Update cursor position based on index finger tip for precise control."""
+        try:
+            import pyautogui
+            
+            # Get index finger tip position (landmark 8 in MediaPipe)
+            if hasattr(hand_data, 'landmarks') and hand_data.landmarks:
+                # Get index finger tip landmark (index 8)
+                index_tip = hand_data.landmarks.get(8) if isinstance(hand_data.landmarks, dict) else hand_data.get_landmark(8)
+                
+                if index_tip:
+                    # Handle both dict format (new API) and object format (old API)
+                    if isinstance(index_tip, dict):
+                        finger_x = index_tip['x']
+                        finger_y = index_tip['y']
+                    else:
+                        finger_x = index_tip.x
+                        finger_y = index_tip.y
+                    
+                    # Get screen size
+                    screen_width, screen_height = pyautogui.size()
+                    
+                    # Map finger position to screen (with smoothing factor)
+                    # Flip X axis for natural mirror-like control
+                    screen_x = int((1.0 - finger_x) * screen_width)
+                    screen_y = int(finger_y * screen_height)
+                    
+                    # Move cursor smoothly
+                    pyautogui.moveTo(screen_x, screen_y, duration=0.05)
+                
+            elif isinstance(hand_data, dict) and 'landmarks' in hand_data:
+                # Mock hand data structure
+                landmarks = hand_data['landmarks']
+                if len(landmarks) > 8:
+                    finger = landmarks[8]  # Index finger tip
+                    screen_width, screen_height = pyautogui.size()
+                    screen_x = int((1.0 - finger[0]) * screen_width)
+                    screen_y = int(finger[1] * screen_height)
+                    pyautogui.moveTo(screen_x, screen_y, duration=0.05)
+                    
+        except Exception as e:
+            logger.error(f"Cursor tracking error: {e}")
+
     def _update_preview(self, frame: np.ndarray, hands, gesture_result: Optional[GestureResult],
                        action_result: Optional[ActionResult]):
         """Update the preview window with overlays."""
         try:
             # Draw hand landmarks
             display_frame = self.detector.draw_landmarks(frame.copy(), hands)
+
+            # Add camera overlay in corner if enabled
+            if self.show_camera_overlay:
+                self._add_camera_overlay(display_frame, frame)
 
             # Add status overlay
             self._add_status_overlay(display_frame, gesture_result, action_result)
@@ -302,6 +366,35 @@ class GestureControl:
 
         except Exception as e:
             logger.error(f"Preview update error: {e}")
+
+    def _add_camera_overlay(self, display_frame: np.ndarray, original_frame: np.ndarray):
+        """Add small camera preview in corner of window."""
+        h, w = display_frame.shape[:2]
+        
+        # Size of the camera overlay (width, height)
+        overlay_width = 160
+        overlay_height = 120
+        
+        # Position in bottom-right corner with margin
+        margin = 10
+        x_pos = w - overlay_width - margin
+        y_pos = h - overlay_height - margin
+        
+        # Resize original frame to overlay size
+        overlay = cv2.resize(original_frame, (overlay_width, overlay_height))
+        
+        # Add border around overlay
+        cv2.rectangle(display_frame, 
+                     (x_pos - 2, y_pos - 2), 
+                     (x_pos + overlay_width + 2, y_pos + overlay_height + 2),
+                     (255, 255, 255), 2)
+        
+        # Place overlay on display frame
+        display_frame[y_pos:y_pos+overlay_height, x_pos:x_pos+overlay_width] = overlay
+        
+        # Add label
+        cv2.putText(display_frame, "Camera", (x_pos, y_pos - 5),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
     def _add_status_overlay(self, frame: np.ndarray, gesture_result: Optional[GestureResult],
                            action_result: Optional[ActionResult]):
