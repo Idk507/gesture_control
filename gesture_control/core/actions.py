@@ -73,6 +73,7 @@ GESTURE_TO_ACTION = {
     GestureAction.SCROLL_LEFT: ActionType.SCROLL_LEFT,
     GestureAction.SCROLL_RIGHT: ActionType.SCROLL_RIGHT,
     GestureAction.CLICK: ActionType.CLICK,
+    GestureAction.RIGHT_CLICK: ActionType.RIGHT_CLICK,
     GestureAction.HOVER: ActionType.HOVER,
     GestureAction.IDLE: ActionType.IDLE,
     GestureAction.NONE: ActionType.NONE,
@@ -90,7 +91,8 @@ class ActionExecutor:
     def __init__(self,
                  scroll_amount: int = 3,
                  action_cooldown: float = 0.2,
-                 enable_safety: bool = True):
+                 enable_safety: bool = True,
+                 enable_click: bool = False):
         """
         Initialize action executor.
 
@@ -98,10 +100,12 @@ class ActionExecutor:
             scroll_amount: Number of scroll units per scroll action
             action_cooldown: Minimum time between actions (seconds)
             enable_safety: Enable safety measures (failsafe, etc.)
+            enable_click: Allow mouse click action from gestures
         """
         self.scroll_amount = scroll_amount
         self.action_cooldown = action_cooldown
         self.enable_safety = enable_safety
+        self.enable_click = enable_click
 
         # Rate limiting
         self.last_action_time = 0
@@ -177,6 +181,8 @@ class ActionExecutor:
                 return self._scroll_right()
             elif action_type == ActionType.CLICK:
                 return self._click()
+            elif action_type == ActionType.RIGHT_CLICK:
+                return self._right_click()
             elif action_type == ActionType.HOVER:
                 return self._hover()
             elif action_type == ActionType.IDLE:
@@ -190,15 +196,15 @@ class ActionExecutor:
 
     def _scroll_up(self) -> ActionResult:
         """Perform scroll up action."""
-        # Scroll up (negative direction)
-        scroll_units = -self.scroll_amount * self.scroll_direction
+        # Scroll up - positive values scroll UP in PyAutoGUI (content moves down)
+        scroll_units = self.scroll_amount
         pyautogui.scroll(scroll_units)
         return ActionResult(ActionType.SCROLL_UP, True, f"Scrolled up {abs(scroll_units)} units")
 
     def _scroll_down(self) -> ActionResult:
         """Perform scroll down action."""
-        # Scroll down (positive direction)
-        scroll_units = self.scroll_amount * self.scroll_direction
+        # Scroll down - negative values scroll DOWN in PyAutoGUI (content moves up)
+        scroll_units = -self.scroll_amount
         pyautogui.scroll(scroll_units)
         return ActionResult(ActionType.SCROLL_DOWN, True, f"Scrolled down {abs(scroll_units)} units")
 
@@ -226,8 +232,17 @@ class ActionExecutor:
 
     def _click(self) -> ActionResult:
         """Perform mouse click action."""
+        if not self.enable_click:
+            return ActionResult(ActionType.CLICK, True, "Click action disabled")
         pyautogui.click()
         return ActionResult(ActionType.CLICK, True, "Mouse clicked")
+
+    def _right_click(self) -> ActionResult:
+        """Perform right-click action."""
+        if not self.enable_click:
+            return ActionResult(ActionType.RIGHT_CLICK, True, "Right-click action disabled")
+        pyautogui.rightClick()
+        return ActionResult(ActionType.RIGHT_CLICK, True, "Right-clicked")
 
     def _hover(self) -> ActionResult:
         """Handle hover mode (no action, just state)."""
@@ -255,6 +270,7 @@ class ActionExecutor:
                 'scroll_amount': self.scroll_amount,
                 'action_cooldown': self.action_cooldown,
                 'scroll_direction': self.scroll_direction,
+                'enable_click': self.enable_click,
             }
         }
 
