@@ -30,6 +30,7 @@ import logging
 from typing import Optional, Dict, Any
 from enum import Enum
 import sys
+import pytest
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -40,7 +41,7 @@ sys.path.append('.')
 from test_camera import CameraCapture
 from test_detection import HandDetector
 from test_gestures import GestureRecognizer, GestureResult
-from test_actions import ActionExecutor, ActionResult
+from test_actions import ActionExecutor, ActionResult, ActionType
 
 print("✅ All modules imported successfully")
 
@@ -423,6 +424,9 @@ class GestureControl:
 def test_integration():
     """Test the integrated gesture control system."""
 
+    if not sys.stdin or not sys.stdin.isatty():
+        pytest.skip("Interactive integration test requires a TTY")
+
     print("Testing Gesture Control Integration...")
     print("⚠️  This will start the camera and show a preview window")
     print("   Press 'q' to quit, 'p' to pause/resume")
@@ -529,9 +533,9 @@ def test_components():
 
     class MockActionExecutor(ActionExecutor):
         def _scroll_up(self):
-            return ActionExecutor.ActionResult(ActionExecutor.ActionType.SCROLL_UP, True, "Mock scroll")
+            return ActionResult(ActionType.SCROLL_UP, True, "Mock scroll")
         def _scroll_down(self):
-            return ActionExecutor.ActionResult(ActionExecutor.ActionType.SCROLL_DOWN, True, "Mock scroll")
+            return ActionResult(ActionType.SCROLL_DOWN, True, "Mock scroll")
 
     executor = MockActionExecutor()
     result = executor.execute_action_direct(ActionType.HOVER)
