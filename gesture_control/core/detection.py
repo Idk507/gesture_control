@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 # Try to import MediaPipe
 try:
     import mediapipe as mp
+    from mediapipe.tasks import python
+    from mediapipe.tasks.python import vision
     MEDIAPIPE_AVAILABLE = True
     logger.info("MediaPipe imported successfully")
 except ImportError:
@@ -45,7 +47,7 @@ class HandLandmarks:
         Initialize hand landmarks.
 
         Args:
-            landmarks_data: Raw landmark data from MediaPipe
+            landmarks_data: Raw landmark data from MediaPipe (list of landmarks or NormalizedLandmarkList)
             handedness: "Left" or "Right" hand
         """
         self.handedness = handedness
@@ -54,13 +56,24 @@ class HandLandmarks:
 
         # Extract landmark coordinates
         if MEDIAPIPE_AVAILABLE and landmarks_data:
-            for idx, landmark in enumerate(landmarks_data.landmark):
-                self.landmarks[idx] = {
-                    'x': landmark.x,
-                    'y': landmark.y,
-                    'z': landmark.z,
-                    'visibility': getattr(landmark, 'visibility', 1.0)
-                }
+            # New MediaPipe API returns a list of NormalizedLandmark objects
+            if isinstance(landmarks_data, list):
+                for idx, landmark in enumerate(landmarks_data):
+                    self.landmarks[idx] = {
+                        'x': landmark.x,
+                        'y': landmark.y,
+                        'z': landmark.z,
+                        'visibility': getattr(landmark, 'visibility', 1.0)
+                    }
+            # Old API compatibility (NormalizedLandmarkList)
+            elif hasattr(landmarks_data, 'landmark'):
+                for idx, landmark in enumerate(landmarks_data.landmark):
+                    self.landmarks[idx] = {
+                        'x': landmark.x,
+                        'y': landmark.y,
+                        'z': landmark.z,
+                        'visibility': getattr(landmark, 'visibility', 1.0)
+                    }
         else:
             # Mock data for development
             self._generate_mock_landmarks()
@@ -142,18 +155,56 @@ class HandDetector:
 
         if self.use_mock:
             logger.info("Using mock hand detection implementation")
-            self.mp_hands = None
             self.hands = None
             self.mp_drawing = None
         else:
-            logger.info("Using MediaPipe hand detection")
-            self.mp_hands = mp.solutions.hands
-            self.hands = self.mp_hands.Hands(
-                max_num_hands=max_hands,
-                min_detection_confidence=detection_confidence,
-                min_tracking_confidence=tracking_confidence
-            )
-            self.mp_drawing = mp.solutions.drawing_utils
+            logger.info("Using MediaPipe hand detection (tasks API)")
+            try:
+                # Create HandLandmarkerOptions for new API
+                base_options = python.BaseOptions(
+                    model_asset_path=self._get_model_path()
+                )
+                options = vision.HandLandmarkerOptions(
+                    base_options=base_options,
+                    running_mode=vision.RunningMode.IMAGE,
+                    num_hands=max_hands,
+                    min_hand_detection_confidence=detection_confidence,
+                    min_hand_presence_confidence=tracking_confidence,
+                    min_tracking_confidence=tracking_confidence
+                )
+                self.hands = vision.HandLandmarker.create_from_options(options)
+                self.mp_drawing = None  # New API doesn't use mp.solutions.drawing_utils
+                logger.info("MediaPipe HandLandmarker initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize MediaPipe: {e}")
+                logger.warning("Falling back to mock implementation")
+                self.use_mock = True
+                self.hands = None
+                self.mp_drawing = None
+
+    def _get_model_path(self) -> str:
+        """Get the path to the hand landmarker model file."""
+        import os
+        import urllib.request
+        
+        # Model will be stored in user's home directory
+        model_dir = os.path.join(os.path.expanduser("~"), ".mediapipe", "models")
+        os.makedirs(model_dir, exist_ok=True)
+        
+        model_path = os.path.join(model_dir, "hand_landmarker.task")
+        
+        # Download model if it doesn't exist
+        if not os.path.exists(model_path):
+            logger.info("Downloading hand landmarker model...")
+            model_url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+            try:
+                urllib.request.urlretrieve(model_url, model_path)
+                logger.info(f"Model downloaded to {model_path}")
+            except Exception as e:
+                logger.error(f"Failed to download model: {e}")
+                raise
+        
+        return model_path
 
     def detect_hands(self, frame: np.ndarray) -> List[HandLandmarks]:
         """
@@ -174,20 +225,24 @@ class HandDetector:
             return self._real_detect_hands(frame)
 
     def _real_detect_hands(self, frame: np.ndarray) -> List[HandLandmarks]:
-        """Real MediaPipe hand detection."""
+        """Real MediaPipe hand detection using new tasks API."""
         try:
-            # Process the frame
-            results = self.hands.process(frame)
+            # Convert numpy array to MediaPipe Image
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
+            
+            # Detect hands
+            detection_result = self.hands.detect(mp_image)
 
             detected_hands = []
 
-            if results.multi_hand_landmarks and results.multi_handedness:
+            # Check if hands were detected
+            if detection_result.hand_landmarks and detection_result.handedness:
                 for hand_landmarks, handedness in zip(
-                    results.multi_hand_landmarks,
-                    results.multi_handedness
+                    detection_result.hand_landmarks,
+                    detection_result.handedness
                 ):
-                    # Get handedness label
-                    hand_label = handedness.classification[0].label
+                    # Get handedness label (Left or Right)
+                    hand_label = handedness[0].category_name
 
                     # Create HandLandmarks object
                     hand_obj = HandLandmarks(hand_landmarks, hand_label)
@@ -247,38 +302,65 @@ class HandDetector:
         Returns:
             Frame with landmarks drawn
         """
-        if self.use_mock or not MEDIAPIPE_AVAILABLE:
-            # Simple mock drawing
-            for hand in hands:
-                min_x, min_y, max_x, max_y = hand.get_bounding_box()
-                h, w = frame.shape[:2]
+        # Draw landmarks for each detected hand
+        for hand in hands:
+            h, w = frame.shape[:2]
+            
+            # Draw bounding box
+            min_x, min_y, max_x, max_y = hand.get_bounding_box()
+            cv2.rectangle(frame,
+                        (int(min_x * w), int(min_y * h)),
+                        (int(max_x * w), int(max_y * h)),
+                        (0, 255, 0), 2)
 
-                # Convert normalized to pixel coordinates
-                cv2.rectangle(frame,
-                            (int(min_x * w), int(min_y * h)),
-                            (int(max_x * w), int(max_y * h)),
-                            (0, 255, 0), 2)
-
-                # Draw hand label
-                cv2.putText(frame, hand.handedness,
-                          (int(min_x * w), int(min_y * h) - 10),
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-        else:
-            # Real MediaPipe drawing
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-            # Convert back to RGB after drawing
-            for hand in hands:
-                if hand.raw_data:
-                    self.mp_drawing.draw_landmarks(
-                        frame_bgr, hand.raw_data, self.mp_hands.HAND_CONNECTIONS)
-
-            frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            # Draw hand label
+            cv2.putText(frame, hand.handedness,
+                      (int(min_x * w), int(min_y * h) - 10),
+                      cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            
+            # Draw landmarks (circles for each point)
+            for idx, landmark in hand.landmarks.items():
+                x_px = int(landmark['x'] * w)
+                y_px = int(landmark['y'] * h)
+                
+                # Draw landmark point
+                cv2.circle(frame, (x_px, y_px), 3, (255, 0, 0), -1)
+                
+                # Draw finger tips larger
+                if idx in [4, 8, 12, 16, 20]:  # Finger tips
+                    cv2.circle(frame, (x_px, y_px), 5, (0, 255, 255), -1)
+            
+            # Draw connections between landmarks (simplified)
+            connections = [
+                # Thumb
+                (0, 1), (1, 2), (2, 3), (3, 4),
+                # Index
+                (0, 5), (5, 6), (6, 7), (7, 8),
+                # Middle
+                (0, 9), (9, 10), (10, 11), (11, 12),
+                # Ring
+                (0, 13), (13, 14), (14, 15), (15, 16),
+                # Pinky
+                (0, 17), (17, 18), (18, 19), (19, 20),
+                # Palm
+                (5, 9), (9, 13), (13, 17)
+            ]
+            
+            for start_idx, end_idx in connections:
+                if start_idx in hand.landmarks and end_idx in hand.landmarks:
+                    start = hand.landmarks[start_idx]
+                    end = hand.landmarks[end_idx]
+                    
+                    start_point = (int(start['x'] * w), int(start['y'] * h))
+                    end_point = (int(end['x'] * w), int(end['y'] * h))
+                    
+                    cv2.line(frame, start_point, end_point, (0, 255, 0), 2)
 
         return frame
 
     def close(self):
         """Clean up resources."""
         if not self.use_mock and self.hands:
+            # New API uses close() method
             self.hands.close()
         logger.info("Hand detector closed")
