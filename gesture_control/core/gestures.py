@@ -23,6 +23,7 @@ class GestureType(Enum):
     SWIPE_LEFT = "swipe_left"
     SWIPE_RIGHT = "swipe_right"
     PINCH = "pinch"
+    PINCH_MIDDLE = "pinch_middle"  # Middle finger + thumb
     HAND_OPEN = "hand_open"
     HAND_CLOSED = "hand_closed"
 
@@ -39,6 +40,7 @@ class GestureAction(Enum):
     SCROLL_LEFT = "scroll_left"
     SCROLL_RIGHT = "scroll_right"
     CLICK = "click"
+    RIGHT_CLICK = "right_click"
     HOVER = "hover"
     IDLE = "idle"
 
@@ -50,6 +52,7 @@ GESTURE_ACTIONS = {
     GestureType.SWIPE_LEFT: GestureAction.SCROLL_LEFT,
     GestureType.SWIPE_RIGHT: GestureAction.SCROLL_RIGHT,
     GestureType.PINCH: GestureAction.CLICK,
+    GestureType.PINCH_MIDDLE: GestureAction.RIGHT_CLICK,
     GestureType.HAND_OPEN: GestureAction.HOVER,
     GestureType.HAND_CLOSED: GestureAction.IDLE,
     GestureType.NONE: GestureAction.NONE,
@@ -139,9 +142,13 @@ class GestureRecognizer:
         current_pos = np.array([index_tip['x'], index_tip['y']])
         self._update_history(current_pos)
 
-        # Analyze different gesture types
+        # Get middle finger tip for right-click detection
+        middle_tip = hand.get_landmark(12)  # Middle finger tip
+
+        # Analyze different gesture types (priority order matters)
         gestures = [
             self._detect_pinch(index_tip, thumb_tip),
+            self._detect_middle_pinch(middle_tip, thumb_tip) if middle_tip else GestureResult(GestureType.NONE, 0.0),
             self._detect_hand_state(hand),
             self._detect_swipe(),
         ]
@@ -220,7 +227,7 @@ class GestureRecognizer:
         return GestureResult(GestureType.NONE, 0.0)
 
     def _detect_pinch(self, index_tip: Dict, thumb_tip: Dict) -> GestureResult:
-        """Detect pinch gesture based on distance between index finger and thumb."""
+        """Detect pinch gesture based on distance between index finger and thumb (left click)."""
         # Calculate distance between finger tips
         index_pos = np.array([index_tip['x'], index_tip['y']])
         thumb_pos = np.array([thumb_tip['x'], thumb_tip['y']])
@@ -232,6 +239,25 @@ class GestureRecognizer:
             confidence = 1.0 - (distance / self.pinch_threshold)
             confidence = min(confidence, 1.0)
             return GestureResult(GestureType.PINCH, confidence)
+
+        return GestureResult(GestureType.NONE, 0.0)
+
+    def _detect_middle_pinch(self, middle_tip: Dict, thumb_tip: Dict) -> GestureResult:
+        """Detect middle finger pinch gesture for right-click."""
+        if not middle_tip or not thumb_tip:
+            return GestureResult(GestureType.NONE, 0.0)
+
+        # Calculate distance between middle finger and thumb tips
+        middle_pos = np.array([middle_tip['x'], middle_tip['y']])
+        thumb_pos = np.array([thumb_tip['x'], thumb_tip['y']])
+
+        distance = np.linalg.norm(middle_pos - thumb_pos)
+
+        # Middle pinch detected when fingers are close
+        if distance < self.pinch_threshold:
+            confidence = 1.0 - (distance / self.pinch_threshold)
+            confidence = min(confidence, 1.0)
+            return GestureResult(GestureType.PINCH_MIDDLE, confidence)
 
         return GestureResult(GestureType.NONE, 0.0)
 
